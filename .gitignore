@@ -1,0 +1,6 @@
+.venv/
+.omc/
+tests/fixtures/
+*.swp
+__pycache__/
+*.pyc

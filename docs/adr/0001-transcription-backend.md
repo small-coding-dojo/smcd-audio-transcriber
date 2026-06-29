@@ -1,7 +1,7 @@
 # ADR-0001: Transcription Backend Selection
 
 **Date:** 2026-06-22
-**Status:** Proposed
+**Status:** Approved
 **Deciders:** Engineering
 
 ---
