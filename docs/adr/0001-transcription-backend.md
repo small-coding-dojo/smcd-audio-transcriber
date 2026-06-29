@@ -79,5 +79,5 @@ Self-hosted models are preferred because they eliminate data retention risk by d
 
 - A HuggingFace token (`HF_TOKEN`) and one-time license acceptance for `pyannote/speaker-diarization-3.1` is an operational prerequisite.
 - A GPU is strongly recommended for production latency targets; CPU-only deployments should use `int8` quantization via CTranslate2.
-- Audio must not be written to disk at any point in the request lifecycle — format conversion (mp3, m4a, ogg, etc.) must be handled in memory (e.g., via `pydub`/`ffmpeg` piped through `BytesIO`).
+- Any temporary files written during processing (e.g., for format conversion) must be deleted before the response is returned — audio must not persist on disk beyond the request lifecycle.
 - Startup time will be several seconds while models load — this is a one-time cost per process.
