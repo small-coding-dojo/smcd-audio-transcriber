@@ -1,5 +1,7 @@
-# findings wrt to adr 
+# Findings wrt ADR-0001 — RESOLVED / SUPERSEDED
 
-* status can not be accepted (no human intevened yet)
-* in memory is not a requirement
-* "Must handle concurrent HTTP requests without degrading" is not relevant at this stage, because we don't know yet wether we'll us a hosted service. Furthermore there are other option to handle degrading. 
+> **Status:** All three notes below have been addressed. Superseded by the approved [ADR-0001](0001-transcription-backend.md), [ADR-0002](0002-concurrency-and-resource-model.md), and the architectural review in [../FINDINGS.md](../FINDINGS.md). Retained for history.
+
+* ~~Status cannot be accepted (no human intervened yet)~~ — **Resolved.** ADR-0001 was reviewed and explicitly approved by a human; status is now `Approved`.
+* ~~In-memory is not a requirement~~ — **Clarified.** Correct that the *brief* never mandates "in-memory" as such. What the brief *does* require (REQ-PRIV) is that audio is never written to disk, logged, or retained after the response. The roadmap (US-05) implements that as in-memory processing; ADR-0002 §3 defines "in-memory" precisely as *not persisted to disk*, not *whole file resident in unbounded copies*. No conflict with the brief remains.
+* ~~Concurrency handling is not relevant at this stage~~ — **Superseded.** The brief lists "handle multiple concurrent requests without degrading" as an explicit requirement (REQ-PERF-2), and the approved test spec (TC-602/603/713) and roadmap (US-19) treat it as in-scope. ADR-0002 §1–2 records the concurrency and backpressure model. The earlier concern (whether a hosted service might absorb this) is moot now that ADR-0001 selected a self-hosted backend — degradation must be handled in-process.

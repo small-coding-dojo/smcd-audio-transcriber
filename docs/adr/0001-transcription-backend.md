@@ -67,7 +67,7 @@ ClearVoice requires an HTTP service that accepts an uploaded audio file and retu
 
 ## Decision
 
-**Proposed: faster-whisper (`large-v3`) for transcription combined with pyannote.audio (`pyannote/speaker-diarization-3.1`) for speaker diarisation.**
+**Decision: faster-whisper (`large-v3`) for transcription combined with pyannote.audio (`pyannote/speaker-diarization-3.1`) for speaker diarisation.**
 
 Self-hosted models are preferred because they eliminate data retention risk by design — no contractual verification required, and no audio ever leaves the service boundary. Cloud APIs remain viable if a zero-retention policy can be contractually confirmed, but that adds a procurement and compliance dependency that self-hosting avoids.
 
@@ -81,3 +81,17 @@ Self-hosted models are preferred because they eliminate data retention risk by d
 - A GPU is strongly recommended for production latency targets; CPU-only deployments should use `int8` quantization via CTranslate2.
 - Any temporary files written during processing (e.g., for format conversion) must be deleted before the response is returned — audio must not persist on disk beyond the request lifecycle.
 - Startup time will be several seconds while models load — this is a one-time cost per process.
+
+### Model sourcing strategy
+
+Models are **baked into the container image at build time**, not downloaded on first request. Rationale:
+
+- A "single command starts the service" (roadmap US-01) cannot be promised if the first boot must download ~3 GB (whisper `large-v3`) plus the pyannote weights from HuggingFace — cold start would exceed several minutes and would fail in air-gapped or rate-limited environments.
+- Baking weights in makes the image self-contained and reproducible: the image digest pins the exact model bytes, so the same image transcribes identically everywhere.
+- Trade-off accepted: the image grows to roughly 5–8 GB and the build needs network + `HF_TOKEN` to fetch the gated pyannote weights once. CI build time increases accordingly; this is a one-time-per-release cost, not a per-deploy cost.
+
+The build downloads weights into the image cache directory (`HF_HOME`); at runtime the loader runs fully offline (`HF_HUB_OFFLINE=1`). `HF_TOKEN` is therefore a **build-time** secret, not a runtime one — it is not required in the running container.
+
+### Concurrency, resource limits, and request lifecycle
+
+These cross-cutting concerns (pyannote thread-safety, memory ceilings under concurrency, upload-size limits, client-disconnect handling, and the full-pipeline latency budget) are decided in **[ADR-0002](0002-concurrency-and-resource-model.md)**, which this ADR's backend choice directly constrains.

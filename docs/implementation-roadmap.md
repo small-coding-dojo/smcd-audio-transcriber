@@ -3,7 +3,7 @@
 **Date:** 2026-06-29  
 **Linked brief:** [PROJECT_BRIEF.md](../PROJECT_BRIEF.md)  
 **Linked test spec:** [test-specification.md](test-specification.md)  
-**Linked ADR:** [ADR-0001](adr/0001-transcription-backend.md)
+**Linked ADRs:** [ADR-0001](adr/0001-transcription-backend.md), [ADR-0002](adr/0002-concurrency-and-resource-model.md)
 
 ---
 
@@ -21,11 +21,11 @@
 
 | # | Name | Goal after this increment | Tests first unlocked |
 |---|---|---|---|
-| 1 | Foundation | WAV → timestamped transcript, privacy-safe by design | TC-101 to TC-106, TC-201 to TC-203, TC-501 to TC-504 |
-| 2 | Speaker diarisation | Each segment carries an accurate speaker label | TC-204, TC-303 to TC-305 |
+| 1 | Foundation | WAV → timestamped transcript, privacy-safe by design, upload limits | TC-101 to TC-106, TC-201, TC-203, TC-205, TC-501 to TC-504, TC-711, TC-712 |
+| 2 | Speaker diarisation | Each segment carries an accurate speaker label | TC-202, TC-204, TC-303 to TC-306 |
 | 3 | Multi-format input | Accepts WAV, MP3, FLAC, M4A, OGG, WebM, MP4 | TC-401 to TC-407, TC-705 to TC-706 |
 | 4 | Robustness | No 5xx on any input; all edge cases handled | TC-102 to TC-104, TC-701 to TC-710 |
-| 5 | Performance | Meets RTF targets; handles concurrent load | TC-601 to TC-604 |
+| 5 | Performance | Meets RTF targets; handles concurrent load | TC-601 to TC-604, TC-713 |
 | 6 | Streaming *(extra credit)* | SSE or WebSocket endpoint yields segments in real time | TC-801 to TC-803 |
 
 ---
@@ -55,9 +55,9 @@
 
 *As an operator, I want `GET /health` to report whether models are loaded, so that I can gate traffic until the service is ready.*
 
-- Returns `200 OK` with `{"status": "ok", "models_loaded": true}` once faster-whisper and pyannote are loaded
-- Returns `{"status": "starting", "models_loaded": false}` (or `503`) while models are still loading
-- Models are loaded once at startup, not on the first request
+- Returns `200 OK` with `{"status": "ok", "models_loaded": true}` once the **faster-whisper** model is loaded (pyannote does not exist yet in Increment 1; US-06 extends this check to include it)
+- Returns `{"status": "starting", "models_loaded": false}` (or `503`) while the model is still loading
+- The model is loaded once at startup, not on the first request
 
 *Contributes to TC-601 (model preload prerequisite).*
 
@@ -104,13 +104,28 @@
 
 ---
 
+### US-23 — Enforce upload size and duration limits
+
+*As an operator, I want oversized or over-long uploads rejected early, so that a single request cannot exhaust service memory or violate the privacy constraint during decode.*
+
+> Added in the v1.1 architectural review (FINDINGS R-06). Placed in Increment 1 because it is a cheap guardrail that protects every later increment — see [ADR-0002](adr/0002-concurrency-and-resource-model.md) §3.
+
+- Uploads exceeding `MAX_UPLOAD_BYTES` (default 100 MB) are rejected with `413` while streaming the body — the full payload is never buffered to measure it
+- Audio whose probed duration exceeds `MAX_AUDIO_DURATION_S` (default 7200 s) is rejected with `422` after a metadata probe, before full decode
+- Both limits are configurable via environment variables with safe defaults
+- Error responses use the canonical envelope (`code: "file_too_large"` / `"audio_too_long"`)
+
+*Tests: TC-711, TC-712.*
+
+---
+
 ## Increment 2 — Speaker Diarisation
 
 **Goal:** Every segment in the response carries a consistent speaker label. A 2-speaker recording produces exactly 2 distinct labels with DER ≤ 20%.
 
 **Shippable state:** all core requirements (REQ-CORE-1 through REQ-CORE-3) satisfied. Evaluators can verify accuracy, timestamps, and speaker attribution.
 
-**Prerequisite:** pyannote HuggingFace token (`HF_TOKEN`) configured as an environment variable; model license accepted once on HF (per ADR-0001 consequences).
+**Prerequisite:** pyannote model license accepted once on HuggingFace, and `HF_TOKEN` available **at image build time** to fetch the gated weights (per ADR-0001 model-sourcing strategy). The token is *not* needed in the running container — weights are baked into the image and loaded offline.
 
 ---
 
@@ -119,11 +134,12 @@
 *As an API consumer, I want each transcript segment to include a speaker label, so that I can attribute speech to specific individuals.*
 
 - pyannote `speaker-diarization-3.1` pipeline loaded at startup alongside faster-whisper
-- `HF_TOKEN` read from environment; service fails fast at startup with a clear error if absent
+- pyannote weights are available offline at runtime (baked into the image at build time per ADR-0001 model-sourcing strategy); the service does not download them on first request
 - Each segment in the response contains `speaker` (string, e.g. `"SPEAKER_00"`)
 - All speaker values across a response use a consistent label set (no spelling drift)
 - A single-speaker recording produces exactly one distinct `speaker` value
 - A 2-speaker recording produces exactly two distinct `speaker` values
+- The `GET /health` check from US-02 is extended to also report pyannote readiness; `models_loaded` is true only once **both** models are loaded
 
 *Tests: TC-202 (full), TC-204, TC-304, TC-305.*
 
@@ -154,7 +170,7 @@
 *As an API consumer, I want the service to detect the audio format from the file content (not the filename extension), so that I can upload files without renaming them.*
 
 - Format detection uses magic bytes / libav probe, not the `filename` or `Content-Type` header provided by the client
-- Detected format is decoded to a PCM stream for the transcription pipeline
+- Detected format is decoded **and resampled to 16 kHz mono int16 PCM** — the format faster-whisper expects. Browser-recorded WebM/Opus is typically 48 kHz stereo, so downmix + resample is mandatory, not optional. The resampling path (ffmpeg/libav) is fixed and documented so accuracy is reproducible across formats
 - If conversion requires a temporary file (e.g. ffmpeg intermediary), that file is deleted before the response is returned — audio must not persist on disk beyond the request lifecycle (per ADR-0001)
 
 *Contributes to TC-501 (privacy); prerequisite for US-09.*
@@ -191,6 +207,8 @@
 **Goal:** The service returns no `5xx` on any input, recovers cleanly from client disconnects, and handles all semantic edge cases described in the test spec.
 
 **Shippable state:** TC-7xx pass. Service is production-safe under adversarial or unexpected input.
+
+**Parallelisable:** US-11 through US-17 have no dependencies on each other and can be assigned to different developers simultaneously. US-17 (disconnect handling) is the most involved — see ADR-0002 §4 before starting it.
 
 ---
 
@@ -257,7 +275,8 @@
 *As an API consumer, I want multi-hour recordings to complete eventually without crashing the service, so that batch transcription of long meetings is possible.*
 
 - `long_90min.mp3` (90 min) returns `200` within a 2-hour client timeout
-- Service RSS memory does not exceed a sustainable ceiling during processing
+- Per-request memory is bounded by bounding worker concurrency, not by holding many full files at once ([ADR-0002](adr/0002-concurrency-and-resource-model.md) §3): a 90-min file decodes to ~172 MB PCM, and only N (worker count) such buffers are resident simultaneously
+- "In-memory" (US-05) means *not persisted to disk*, not *entire file resident with unbounded copies* — this resolves the apparent tension between US-05, US-16, and US-19 flagged in the review (R-02)
 - No `500`; service remains alive after the request
 
 *Tests: TC-703.*
@@ -271,6 +290,8 @@
 - Client connects, sends `long_90min.mp3`, closes TCP after 5 s
 - A subsequent valid request from a different client returns `200` with a correct transcript
 - No orphaned threads, open file descriptors, or temp audio files remain after disconnect is detected
+- Cancellation follows the [ADR-0002](adr/0002-concurrency-and-resource-model.md) §4 policy: the transcription segment-generator loop checks `request.is_disconnected()` between segments and stops (freeing the worker within ~one segment); an in-flight pyannote call cannot be interrupted mid-call but its result is discarded and the slot released immediately after; a hard `REQUEST_TIMEOUT_S` bounds worst-case occupancy
+- This story's design depends on ADR-0002 §4 — read it before implementing, since "just run it in an executor" does **not** cancel on disconnect (R-03)
 
 *Tests: TC-710.*
 
@@ -291,6 +312,7 @@
 - Median latency over 5 runs with `clear_de_2spk_30s.wav`:
   - GPU deployment: ≤ 15 s (RTF 0.5)
   - CPU int8 deployment: ≤ 60 s (RTF 2.0)
+- RTF is measured **end-to-end** (decode + resample + transcription + diarisation + serialisation), not transcription-only — per [ADR-0002](adr/0002-concurrency-and-resource-model.md) §5
 - Hardware profile (CPU/GPU model, quantisation setting) recorded in test report
 
 *Tests: TC-601.*
@@ -301,11 +323,13 @@
 
 *As an API consumer, I want 10 simultaneous requests to complete successfully, so that the service is usable under real user load.*
 
+- Concurrency follows the [ADR-0002](adr/0002-concurrency-and-resource-model.md) §1 model: N worker processes, each owning **private** faster-whisper and pyannote instances (no model shared across threads — resolves the pyannote thread-safety risk); inference serialised per worker by a bounded semaphore
 - 10 simultaneous `POST /transcribe` requests with `clear_de_2spk_30s.wav` all return `200`
 - No request hangs indefinitely
-- p95 latency across 10 concurrent requests ≤ 3 × single-request baseline p95
+- p95 latency across 10 concurrent requests ≤ 3 × single-request baseline p95, measured at a **documented worker count** (ADR-0002 §1)
+- Requests beyond the configured `QUEUE_DEPTH` are shed with `503` + `Retry-After`, not OOM (ADR-0002 §2)
 
-*Tests: TC-602, TC-603.*
+*Tests: TC-602, TC-603, TC-713.*
 
 ---
 
@@ -365,8 +389,9 @@
 | REQ-PERF-1: Reasonable latency | 5 | US-02, US-18 |
 | REQ-PERF-2: Concurrent requests | 5 | US-19, US-17 |
 | REQ-QUAL-1: Accuracy | 1+2 | US-03, US-07 |
-| REQ-QUAL-2: Graceful edge cases | 4 | US-11–US-17 |
+| REQ-QUAL-2: Graceful edge cases | 1+4 | US-11–US-17, US-23 |
 | REQ-QUAL-3: Structured response | 1 | US-03, US-04 |
+| ADR-0002: Resource ceilings & backpressure | 1+5 | US-23, US-19 |
 | EXTRA: Streaming | 6 | US-21, US-22 |
 
 ---

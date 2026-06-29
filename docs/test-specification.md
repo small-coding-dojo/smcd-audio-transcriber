@@ -1,9 +1,9 @@
 # Test Specification — Audio Transcriber Service
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Date:** 2026-06-29  
 **Linked brief:** [PROJECT_BRIEF.md](../PROJECT_BRIEF.md)  
-**Linked ADR:** [ADR-0001](adr/0001-transcription-backend.md)
+**Linked ADRs:** [ADR-0001](adr/0001-transcription-backend.md), [ADR-0002](adr/0002-concurrency-and-resource-model.md)
 
 ---
 
@@ -28,6 +28,7 @@ Create these files under `tests/fixtures/` before executing any test cases. Grou
 | `noisy_speech_30s.wav` | 30 s speech with constant background noise (e.g. fan or crowd) |
 | `long_90min.mp3` | 90-minute recording (any content) |
 | `very_short_200ms.wav` | 200 ms speech clip |
+| `same_audio.mp3` | Same content as `clear_en_1spk_10s.wav`, re-encoded to MP3 |
 | `same_audio.flac` | Same content as `clear_en_1spk_10s.wav`, re-encoded to FLAC |
 | `same_audio.m4a` | Same content, M4A/AAC container |
 | `same_audio.ogg` | Same content, OGG Vorbis |
@@ -60,6 +61,31 @@ Quantitative targets referenced by test cases below.
 | Concurrency degradation | p95 latency under 10 concurrent requests vs. single-request baseline | ≤ 3 × baseline |
 
 Choose the GPU or CPU threshold based on the hardware the service runs on during testing; document which applies.
+
+**RTF covers the full pipeline.** Per [ADR-0002](adr/0002-concurrency-and-resource-model.md) §5, the RTF thresholds are measured end-to-end: decode + resample + transcription + diarisation + alignment + JSON serialisation — not transcription time alone. The ~1–3 s pyannote overhead noted in ADR-0001 is included and sits within the stated thresholds.
+
+**Concurrency degradation is measured at a documented worker count.** Per ADR-0002 §1, the p95 target is evaluated against a deployment sized to the offered load. The number of worker processes used for TC-603 must be recorded alongside the hardware profile, or the result is not interpretable.
+
+### Canonical error schema
+
+All non-2xx responses return the same JSON envelope so clients parse one shape (resolves the earlier `error` vs `detail` ambiguity):
+
+```json
+{ "error": { "code": "string_constant", "message": "human-readable description" } }
+```
+
+`code` is a stable machine token (e.g. `missing_file`, `unsupported_format`, `file_too_large`, `audio_too_long`, `empty_file`, `overloaded`). FastAPI's default `{"detail": ...}` body for `HTTPException`/422 is overridden by a global exception handler to this envelope. Test cases below that say "JSON with an `error` key" expect this shape.
+
+**Negative-path status codes** (defined in ADR-0002 §2–3):
+
+| Status | `code` | Condition |
+|---|---|---|
+| `400` | `missing_file` / `bad_request` | Missing or malformed file field |
+| `413` | `file_too_large` | Upload exceeds `MAX_UPLOAD_BYTES` |
+| `415` / `422` | `unsupported_format` | Content is not decodable audio |
+| `422` | `audio_too_long` | Audio duration exceeds `MAX_AUDIO_DURATION_S` |
+| `400` | `empty_file` | Zero-byte upload |
+| `503` | `overloaded` | Queue full; includes `Retry-After` |
 
 ---
 
@@ -150,11 +176,12 @@ These tests verify the structure of a successful response using `clear_de_2spk_3
 
 - **Requirement:** REQ-CORE-2, REQ-CORE-3
 - **Type:** Automated
+- **Increment gate:** The `speaker` assertion requires diarisation (roadmap Increment 2 / US-06). Before Increment 2 the service emits segments without a `speaker` field by design; run the reduced form (assert `start`/`end`/`text` only) until Increment 2 is complete, then enable the full assertion.
 - **Pass if:** Every object in `segments` contains:
   - `start` — number (seconds, float)
   - `end` — number (seconds, float)
   - `text` — string
-  - `speaker` — string (e.g. `"SPEAKER_00"`)
+  - `speaker` — string (e.g. `"SPEAKER_00"`) *(from Increment 2 onward)*
 
 ---
 
@@ -171,6 +198,16 @@ These tests verify the structure of a successful response using `clear_de_2spk_3
 - **Requirement:** REQ-CORE-3
 - **Type:** Automated
 - **Pass if:** All `speaker` values across the response are drawn from a fixed label set (no label changes spelling or casing mid-response); labels are non-empty strings
+
+---
+
+**TC-205 — Language detected correctly for German audio**
+
+- **Requirement:** REQ-QUAL-3 (structured); ADR-0001 (German language)
+- **Type:** Automated
+- **Fixture:** `clear_de_2spk_30s.wav`
+- **Rationale:** A service that transcribes accurately but mislabels the language would pass TC-301 yet break a real integration. This isolates the `language` value.
+- **Pass if:** Response `language` equals `"de"`
 
 ---
 
@@ -225,6 +262,16 @@ These tests require ground-truth fixtures and a WER/DER calculation script.
 - **Type:** Automated
 - **Fixture:** `clear_de_2spk_30s.wav`
 - **Pass if:** Set of distinct `speaker` values has exactly 2 members
+
+---
+
+**TC-306 — German transcription accuracy (single speaker, longer sample)**
+
+- **Requirement:** REQ-QUAL-1 (accurate for clear recordings); ADR-0001 (German language)
+- **Type:** Automated (with ground-truth fixture)
+- **Fixture:** `clear_de_1spk_60s.mp3` + `clear_de_1spk_60s.ground_truth.json`
+- **Method:** Same as TC-301 — concatenate response `text`, compute WER against concatenated ground truth with the standard normaliser. Provides a second quality data point on a longer single-speaker sample and exercises the previously-unused ground-truth fixture.
+- **Pass if:** WER ≤ 15 %
 
 ---
 
@@ -295,10 +342,10 @@ For TC-402 through TC-407, **pass if** status is 200 and the transcript WER agai
 - **Requirement:** REQ-PRIV-3
 - **Type:** Instrumented
 - **Method:**
-  1. Transcribe `clear_de_1spk_60s.mp3`. Note a distinctive phrase from the ground-truth transcript (≥ 5 words, unlikely to appear by coincidence).
+  1. Transcribe `clear_de_1spk_60s.mp3`. From the **actual response** `segments[].text`, extract a distinctive span of ≥ 5 consecutive words. Use the model's own output, not the ground-truth script — the ASR prediction may differ from the script in wording, casing, or punctuation, and only the real output is guaranteed to be present if the service logs transcript content.
   2. Capture all log output emitted *after* the response was sent.
-  3. Search for the distinctive phrase.
-- **Pass if:** Phrase not found in post-response logs
+  3. Search the captured logs for that span (and for a normalised, lower-cased, punctuation-stripped variant).
+- **Pass if:** The span is not found in post-response logs
 
 ---
 
@@ -429,8 +476,8 @@ Run performance tests on the target hardware (GPU or CPU int8) and record which 
 
 - **Requirement:** REQ-QUAL-2
 - **Fixture:** `5speaker_30s.wav`
-- **Pass if:** HTTP 200; `segments` non-empty; distinct `speaker` count ≥ 2; no 5xx  
-  *Note: pyannote may cap or merge speakers. The pass criterion is that the service handles the input gracefully, not that it achieves exactly 5 labels.*
+- **Pass if:** HTTP 200; `segments` non-empty; distinct `speaker` count ≥ 3; no 5xx  
+  *Note: the fixture uses five genuinely distinct edge-tts voices (3 male, 2 female), so the diariser should resolve well above two clusters. A `≥ 2` bar is trivially met by any multi-speaker audio and gives no signal about 5-speaker handling; `≥ 3` confirms the diariser separates more than a single male/female split. Exact-5 is not required — pyannote may cap or merge speakers — but it must not collapse five voices to two.*
 
 ---
 
@@ -440,6 +487,35 @@ Run performance tests on the target hardware (GPU or CPU int8) and record which 
 - **Type:** Instrumented
 - **Method:** Send `POST /transcribe` with `long_90min.mp3`. After 5 s, close the TCP connection from the client side. Then immediately send a second valid request with `clear_en_1spk_10s.wav`.
 - **Pass if:** Second request returns HTTP 200 with valid transcript; service process is still alive; no resource leak (open file handles or threads) visible after the second request completes
+
+---
+
+**TC-711 — Oversized upload is rejected with 413**
+
+- **Requirement:** REQ-QUAL-2; [ADR-0002](adr/0002-concurrency-and-resource-model.md) §3 (resource ceilings)
+- **Type:** Automated
+- **Fixture:** Generated at test time (not stored): a file exceeding `MAX_UPLOAD_BYTES` (e.g. `dd`/ffmpeg-produced filler just over the configured limit). Keeping it out of the repo avoids committing a 100 MB+ binary.
+- **Method:** POST the oversized file to `/transcribe`.
+- **Pass if:** HTTP `413`; body is the canonical error envelope with `code: "file_too_large"`; the full body is not buffered into memory (service RSS does not spike by the upload size); no `5xx`
+
+---
+
+**TC-712 — Over-duration audio is rejected with 422**
+
+- **Requirement:** REQ-QUAL-2; ADR-0002 §3
+- **Type:** Automated
+- **Fixture:** Generated at test time (not stored): a low-bitrate file whose probed duration exceeds `MAX_AUDIO_DURATION_S` but whose byte size stays under `MAX_UPLOAD_BYTES` (e.g. a long stretch of silence or looped speech encoded at a low bitrate), isolating the duration check from the size check.
+- **Method:** POST the over-duration file to `/transcribe`.
+- **Pass if:** HTTP `422`; body is the canonical error envelope with `code: "audio_too_long"`; rejection happens after a metadata probe, before full decode; no `5xx`
+
+---
+
+**TC-713 — Excess concurrency is shed with 503, not OOM**
+
+- **Requirement:** REQ-PERF-2; ADR-0002 §2 (backpressure)
+- **Type:** Automated (load)
+- **Method:** Send simultaneous requests well beyond the configured `QUEUE_DEPTH` (e.g. `QUEUE_DEPTH + 20`) with `clear_de_2spk_30s.wav`.
+- **Pass if:** Over-capacity requests receive `503` with a `Retry-After` header and the canonical error envelope (`code: "overloaded"`); admitted requests still return valid `200` transcripts; the service does not crash or OOM
 
 ---
 
@@ -487,11 +563,12 @@ These tests apply only if the streaming endpoint is implemented. Skip if not.
 | REQ-PRIV-2: No disk write/log/retain after response | TC-501, TC-502 |
 | REQ-PRIV-3: No transcript logged/stored after response | TC-503 |
 | REQ-PERF-1: Reasonable latency relative to audio length | TC-601 |
-| REQ-PERF-2: Multiple concurrent requests | TC-602, TC-603, TC-604, TC-710 |
-| REQ-QUAL-1: Accurate for clear recordings | TC-301 |
-| REQ-QUAL-2: Graceful edge case handling | TC-701–TC-710 |
-| REQ-QUAL-3: Structured response | TC-105, TC-106, TC-201, TC-202, TC-203, TC-204 |
-| ADR-0001: German language | TC-301, TC-302, TC-303, TC-304, TC-305 |
+| REQ-PERF-2: Multiple concurrent requests | TC-602, TC-603, TC-604, TC-710, TC-713 |
+| REQ-QUAL-1: Accurate for clear recordings | TC-301, TC-306 |
+| REQ-QUAL-2: Graceful edge case handling | TC-701–TC-713 |
+| REQ-QUAL-3: Structured response | TC-105, TC-106, TC-201, TC-202, TC-203, TC-204, TC-205 |
+| ADR-0001: German language | TC-205, TC-301, TC-302, TC-303, TC-304, TC-305, TC-306 |
+| ADR-0002: Resource ceilings & backpressure | TC-711, TC-712, TC-713 |
 | EXTRA: Streaming | TC-801, TC-802, TC-803 |
 
 ---

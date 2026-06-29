@@ -28,16 +28,19 @@ from pathlib import Path
 FIXTURES = Path(__file__).parent / "fixtures"
 
 # ── Voice definitions (edge-tts) ──────────────────────────────────────────────
-# Two distinct German voices (ConradNeural = male, KatjaNeural = female).
-# Additional speakers are differentiated via rate/pitch adjustments.
+# Each speaker uses a GENUINELY DISTINCT edge-tts voice, not a pitch/rate shift
+# of the same voice. Pyannote diarisation clusters on speaker embeddings derived
+# from vocal-tract characteristics; pitch-shifting one voice yields near-identical
+# embeddings and is mis-attributed (see FINDINGS.md I-01). Five real de-DE voices
+# (3 male, 2 female) give the diariser separable embeddings.
 
 VOICES: dict[str, dict] = {
-    "SPEAKER_00": {"voice": "de-DE-ConradNeural", "rate": "+0%",   "pitch": "+0Hz"},
-    "SPEAKER_01": {"voice": "de-DE-KatjaNeural",  "rate": "+0%",   "pitch": "+0Hz"},
-    "SPEAKER_02": {"voice": "de-DE-ConradNeural", "rate": "-12%",  "pitch": "-8Hz"},
-    "SPEAKER_03": {"voice": "de-DE-KatjaNeural",  "rate": "+12%",  "pitch": "+5Hz"},
-    "SPEAKER_04": {"voice": "de-DE-ConradNeural", "rate": "+8%",   "pitch": "+10Hz"},
-    "EN_SPEAKER":  {"voice": "en-US-GuyNeural",   "rate": "+0%",   "pitch": "+0Hz"},
+    "SPEAKER_00": {"voice": "de-DE-ConradNeural",              "rate": "+0%", "pitch": "+0Hz"},
+    "SPEAKER_01": {"voice": "de-DE-KatjaNeural",               "rate": "+0%", "pitch": "+0Hz"},
+    "SPEAKER_02": {"voice": "de-DE-KillianNeural",             "rate": "+0%", "pitch": "+0Hz"},
+    "SPEAKER_03": {"voice": "de-DE-AmalaNeural",               "rate": "+0%", "pitch": "+0Hz"},
+    "SPEAKER_04": {"voice": "de-DE-FlorianMultilingualNeural", "rate": "+0%", "pitch": "+0Hz"},
+    "EN_SPEAKER":  {"voice": "en-US-GuyNeural",                "rate": "+0%", "pitch": "+0Hz"},
 }
 
 # ── Scripts ───────────────────────────────────────────────────────────────────
@@ -293,6 +296,7 @@ def gen_format_variants(force: bool) -> None:
         return
 
     variants: dict[str, list[str]] = {
+        "same_audio.mp3":  ["-c:a", "libmp3lame", "-q:a", "2"],
         "same_audio.flac": ["-c:a", "flac"],
         "same_audio.m4a":  ["-c:a", "aac", "-b:a", "128k"],
         "same_audio.ogg":  ["-c:a", "libvorbis", "-q:a", "4"],

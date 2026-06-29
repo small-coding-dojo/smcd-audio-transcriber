@@ -10,6 +10,8 @@
 
 Findings are grouped by severity. **Errors** are factual mistakes or contradictions that must be corrected before implementation. **Risks** are architectural gaps likely to cause production failures. **Improvements** are valid enhancements without blocking urgency.
 
+> **Resolution status (2026-06-29):** All 18 findings have been addressed in the planning artifacts. No application code existed yet, so every fix landed in the test spec, roadmap, fixture generator, or a new ADR. The cross-cutting risks (R-01, R-02, R-03, R-05, R-06) are recorded as decisions in the new **[ADR-0002](adr/0002-concurrency-and-resource-model.md)**. See the Resolution column in the summary table for where each was fixed.
+
 ---
 
 ## Errors
@@ -168,24 +170,24 @@ The pre-existing `docs/adr/FINDINGS.md` contains three notes: that status cannot
 
 ## Summary table
 
-| ID | Severity | Area | One-line description |
-|---|---|---|---|
-| E-01 | Error | Test spec / fixtures | `same_audio.mp3` fixture missing; TC-402 cannot run |
-| E-02 | Error | ADR | Decision body still reads "Proposed:" after approval |
-| E-03 | Error | Roadmap | US-02 references pyannote before it exists (Increment 1) |
-| E-04 | Error | Test spec / roadmap | TC-202 will fail in Increment 1 by design — not annotated |
-| E-05 | Error | Test spec | TC-503 searches ground-truth text, not actual ASR output |
-| R-01 | Risk | Architecture | pyannote pipeline thread-safety under concurrent load unverified |
-| R-02 | Risk | Architecture | In-memory + 90-min audio + 10 concurrent = likely OOM |
-| R-03 | Risk | Architecture | Client disconnect does not cancel executor-thread transcription |
-| R-04 | Risk | Operations | Model loading strategy undefined; breaks "single command" promise |
-| R-05 | Risk | Test spec | RTF targets may not include pyannote diarisation overhead |
-| R-06 | Risk | Architecture | No upload size limit; large files can OOM or violate privacy constraint |
-| I-01 | Improvement | Fixtures | TTS speaker differentiation too weak for reliable DER measurement |
-| I-02 | Improvement | Test spec | 60 s ground-truth generated but unused as quality benchmark |
-| I-03 | Improvement | Test spec | No TC verifies `language` field value for German audio |
-| I-04 | Improvement | Test spec | TC-709 pass criterion (≥ 2 speakers) too weak for 5-speaker test |
-| I-05 | Improvement | Test spec | No canonical error response schema; `error` vs `detail` ambiguous |
-| I-06 | Improvement | Roadmap | Audio resampling to 16 kHz not explicit in US-08 |
-| I-07 | Improvement | Roadmap | Increment 4 stories are parallelisable but not marked as such |
-| I-08 | Improvement | Docs | `docs/adr/FINDINGS.md` conflicts with approved roadmap on concurrency |
+| ID | Severity | Area | One-line description | Resolution |
+|---|---|---|---|---|
+| E-01 | Error | Test spec / fixtures | `same_audio.mp3` fixture missing; TC-402 cannot run | ✅ Added to fixture table + `gen_format_variants()`; regenerated |
+| E-02 | Error | ADR | Decision body still reads "Proposed:" after approval | ✅ ADR-0001 Decision now reads "Decision:" |
+| E-03 | Error | Roadmap | US-02 references pyannote before it exists (Increment 1) | ✅ US-02 scoped to whisper; US-06 extends health to pyannote |
+| E-04 | Error | Test spec / roadmap | TC-202 will fail in Increment 1 by design — not annotated | ✅ TC-202 gains an "Increment gate" note |
+| E-05 | Error | Test spec | TC-503 searches ground-truth text, not actual ASR output | ✅ TC-503 now extracts the span from the real response |
+| R-01 | Risk | Architecture | pyannote pipeline thread-safety under concurrent load unverified | ✅ ADR-0002 §1: private model instances per worker, no sharing |
+| R-02 | Risk | Architecture | In-memory + 90-min audio + 10 concurrent = likely OOM | ✅ ADR-0002 §3: bounded concurrency caps resident buffers; US-16 |
+| R-03 | Risk | Architecture | Client disconnect does not cancel executor-thread transcription | ✅ ADR-0002 §4 cancellation policy; US-17 updated |
+| R-04 | Risk | Operations | Model loading strategy undefined; breaks "single command" promise | ✅ ADR-0001: weights baked into image at build time |
+| R-05 | Risk | Test spec | RTF targets may not include pyannote diarisation overhead | ✅ ADR-0002 §5 + test-spec §3: RTF defined as full-pipeline |
+| R-06 | Risk | Architecture | No upload size limit; large files can OOM or violate privacy constraint | ✅ ADR-0002 §3; US-23; TC-711/712 |
+| I-01 | Improvement | Fixtures | TTS speaker differentiation too weak for reliable DER measurement | ✅ Generator uses 5 genuinely distinct de-DE voices |
+| I-02 | Improvement | Test spec | 60 s ground-truth generated but unused as quality benchmark | ✅ Added TC-306 (WER on 60 s single-speaker file) |
+| I-03 | Improvement | Test spec | No TC verifies `language` field value for German audio | ✅ Added TC-205 (asserts `language == "de"`) |
+| I-04 | Improvement | Test spec | TC-709 pass criterion (≥ 2 speakers) too weak for 5-speaker test | ✅ Raised to ≥ 3 distinct speakers |
+| I-05 | Improvement | Test spec | No canonical error response schema; `error` vs `detail` ambiguous | ✅ Test-spec §3: canonical `{error:{code,message}}` envelope |
+| I-06 | Improvement | Roadmap | Audio resampling to 16 kHz not explicit in US-08 | ✅ US-08 states 16 kHz mono int16 downmix + resample |
+| I-07 | Improvement | Roadmap | Increment 4 stories are parallelisable but not marked as such | ✅ Increment 4 header marks US-11–US-17 parallelisable |
+| I-08 | Improvement | Docs | `docs/adr/FINDINGS.md` conflicts with approved roadmap on concurrency | ✅ Old file annotated as resolved/superseded |
