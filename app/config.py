@@ -34,6 +34,14 @@ class Settings(BaseSettings):
             "'int8_float16' (typical for GPU)."
         ),
     )
+    whisper_language: str | None = Field(
+        default=None,
+        description=(
+            "ISO-639-1 language code to force (e.g. 'en'). Default None means faster-whisper "
+            "auto-detects the language from the first ~30s of audio. See README 'Language "
+            "detection' section for rationale."
+        ),
+    )
 
     # --- Concurrency (consumed from Phase 5 onward) ---
     max_concurrent_jobs: int = Field(
