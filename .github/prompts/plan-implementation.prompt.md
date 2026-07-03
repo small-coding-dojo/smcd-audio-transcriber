@@ -1,7 +1,7 @@
 ---
 description: "Generate a rough implementation plan for the Audio Transcriber Service from the project brief"
 name: "Plan Implementation"
-agent: "plan"
+agent: "Plan"
 ---
 Read [PROJECT_BRIEF.md](../../PROJECT_BRIEF.md) and produce a rough, high-level implementation plan for the Audio Transcriber Service.
 

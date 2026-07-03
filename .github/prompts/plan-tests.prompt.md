@@ -1,7 +1,7 @@
 ---
 description: "Generate a rough automated test plan for the Audio Transcriber Service, scoped strictly to testing (no business logic)"
 name: "Plan Tests"
-agent: "plan"
+agent: "Plan"
 ---
 Read [PROJECT_BRIEF.md](../../PROJECT_BRIEF.md) and the output of the [Plan Implementation](./plan-implementation.prompt.md) prompt (if available) and produce a rough, high-level plan for the automated test suite of the Audio Transcriber Service.
 
