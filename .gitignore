@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+.venv/
+venv/
+env/
+
+.env
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+dist/
+build/
+
+# Model weights should be pre-baked into the container image, not committed to git.
+models/
+
+.vscode/
+.idea/

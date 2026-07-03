@@ -1,0 +1,49 @@
+[project]
+name = "clearvoice-audio-transcriber"
+version = "0.1.0"
+description = "ClearVoice Audio Transcriber Service - accepts an audio upload and returns a timestamped, speaker-diarised transcript."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "pydantic>=2.7,<3.0",
+    "pydantic-settings>=2.3,<3.0",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+# Heavy ML dependencies for transcription (Phase 1) and diarisation (Phase 2).
+# Not required to run the Phase 0 scaffolding / health-check endpoint.
+#
+# NOTE on torch: install torch/torchaudio *before* this extra if you need a
+# specific build (e.g. a CUDA build for GPU). If you skip that step, pip will
+# pull in a default (CPU) torch wheel transitively via whisperx. See the
+# README "Model download & caching strategy" and "GPU vs CPU" sections.
+ml = [
+    "faster-whisper>=1.0.3",
+    "whisperx>=3.1.1",
+    "pyannote.audio>=3.1",
+    "ffmpeg-python>=0.2.0",
+]
+dev = [
+    "pytest>=8.2,<9.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "ruff>=0.5",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
