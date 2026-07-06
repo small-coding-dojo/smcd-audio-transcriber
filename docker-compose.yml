@@ -1,0 +1,12 @@
+services:
+  transcriber:
+    build: .
+    image: smcd-audio-transcriber:local
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    # Graceful shutdown: give in-flight requests time to finish on SIGTERM
+    # before Docker sends SIGKILL (relevant once long transcriptions exist).
+    stop_grace_period: 30s
+    restart: unless-stopped

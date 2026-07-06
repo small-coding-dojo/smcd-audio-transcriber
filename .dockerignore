@@ -1,0 +1,13 @@
+.venv/
+.git/
+.omc/
+.omo/
+.codegraph
+tests/fixtures/
+docs/
+**/__pycache__/
+*.pyc
+*.swp
+.pytest_cache/
+.ruff_cache/
+README.md
