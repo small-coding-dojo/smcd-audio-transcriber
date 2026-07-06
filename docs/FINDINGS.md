@@ -45,8 +45,8 @@ F-07 added (queued-bytes memory term missing from ADR-0002 §3's budget).
 | F-03 | Low | `architecture.md` §2; PROJECT_BRIEF (traceability) | German-language driver omitted; German requirement not traceable to the brief at all | Resolved (docs) — `d98ab8f`; brief clarification with product owner still pending |
 | F-04 | Low | `architecture.md` §5 | ffmpeg decode attributed to US-03; Increment 1 WAV path is in-memory Python, ffmpeg needed from Increment 3 | Resolved — `d98ab8f` |
 | F-05 | Info | `architecture.md` §3 | "Frontend owned by another team" is an unsourced assumption | Resolved — `d98ab8f` |
-| F-06 | Low (escalated from Info) | ADR-0002 | Links to `../FINDINGS.md` as "the architectural review"; the link now resolves to *this* file's unrelated QA findings — misleading, worse than the original dead link | Open |
-| F-07 | Low | ADR-0002 §3 | Memory budget counts only N decoded PCM buffers; omits queued encoded bytes, up to `QUEUE_DEPTH` × `MAX_UPLOAD_BYTES` ≈ 3.2 GB at defaults | Open |
+| F-06 | Low (escalated from Info) | ADR-0002 | Links to `../FINDINGS.md` as "the architectural review"; the link now resolves to *this* file's unrelated QA findings — misleading, worse than the original dead link | Resolved — `7c75d2e` |
+| F-07 | Low | ADR-0002 §3 | Memory budget counts only N decoded PCM buffers; omits queued encoded bytes, up to `QUEUE_DEPTH` × `MAX_UPLOAD_BYTES` ≈ 3.2 GB at defaults | Resolved — `7c75d2e` |
 
 ---
 
