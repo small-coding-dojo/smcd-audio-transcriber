@@ -35,11 +35,11 @@ consistent with TC-504 auto-pass.
 
 | ID | Severity | Affected document | Summary | Status |
 |---|---|---|---|---|
-| F-01 | Medium | `architecture.md` (§5, §6); ADR-0002 §1 wording | Decode shown before worker-slot acquisition, contradicting ADR-0002 §3's memory bound | Open |
-| F-02 | Medium | `architecture.md` §9 | Error contract lists only 413/422/503; test spec §3 also defines 400 and 415 codes and the envelope shape | Open |
-| F-03 | Low | `architecture.md` §2; PROJECT_BRIEF (traceability) | German-language driver omitted; German requirement not traceable to the brief at all | Open |
-| F-04 | Low | `architecture.md` §5 | ffmpeg decode attributed to US-03; Increment 1 WAV path is in-memory Python, ffmpeg needed from Increment 3 | Open |
-| F-05 | Info | `architecture.md` §3 | "Frontend owned by another team" is an unsourced assumption | Open |
+| F-01 | Medium | `architecture.md` (§5, §6); ADR-0002 §1 wording | Decode shown before worker-slot acquisition, contradicting ADR-0002 §3's memory bound | Resolved — `d98ab8f` |
+| F-02 | Medium | `architecture.md` §9 | Error contract lists only 413/422/503; test spec §3 also defines 400 and 415 codes and the envelope shape | Resolved — `d98ab8f` |
+| F-03 | Low | `architecture.md` §2; PROJECT_BRIEF (traceability) | German-language driver omitted; German requirement not traceable to the brief at all | Resolved (docs) — `d98ab8f`; brief clarification with product owner still pending |
+| F-04 | Low | `architecture.md` §5 | ffmpeg decode attributed to US-03; Increment 1 WAV path is in-memory Python, ffmpeg needed from Increment 3 | Resolved — `d98ab8f` |
+| F-05 | Info | `architecture.md` §3 | "Frontend owned by another team" is an unsourced assumption | Resolved — `d98ab8f` |
 | F-06 | Info | ADR-0002 | Links to `../FINDINGS.md`, deleted in commits `36cd9bc`/`a7a0760` (pre-existing; coincidentally re-satisfied while this file exists) | Open |
 
 ---
