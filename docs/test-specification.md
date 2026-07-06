@@ -113,7 +113,7 @@ These tests verify the HTTP interface exists and enforces its inputs correctly. 
 - **Type:** Automated
 - **Input:** `POST /transcribe` with empty multipart body (no `file` field)
 - **Expected:** HTTP 400 with JSON error body
-- **Pass if:** Status 400; body is valid JSON with an `error` or `detail` key describing the problem
+- **Pass if:** Status 400; body is valid JSON with an `error` key (canonical envelope, §3) describing the problem
 
 ---
 

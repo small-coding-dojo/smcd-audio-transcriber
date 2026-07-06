@@ -11,6 +11,8 @@
 Findings are grouped by severity. **Errors** are factual mistakes or contradictions that must be corrected before implementation. **Risks** are architectural gaps likely to cause production failures. **Improvements** are valid enhancements without blocking urgency.
 
 > **Resolution status (2026-06-29):** All 18 findings have been addressed in the planning artifacts. No application code existed yet, so every fix landed in the test spec, roadmap, fixture generator, or a new ADR. The cross-cutting risks (R-01, R-02, R-03, R-05, R-06) are recorded as decisions in the new **[ADR-0002](adr/0002-concurrency-and-resource-model.md)**. See the Resolution column in the summary table for where each was fixed.
+>
+> **Verification pass (2026-07-06):** Re-checked every fix against the current state of `docs/adr/0001-transcription-backend.md`, `docs/adr/0002-concurrency-and-resource-model.md`, `docs/implementation-roadmap.md`, `docs/test-specification.md`, and `tests/generate_fixtures.py`. Initially found **I-05 partially fixed** (TC-102 retained legacy `error`/`detail` wording); fixed same day — TC-102 updated to reference the canonical `error` key only. **All 18 findings are now fully and adequately fixed.**
 
 ---
 
@@ -142,11 +144,17 @@ TC-709 (5-speaker audio) passes if `distinct speaker count ≥ 2`. This is trivi
 
 ---
 
-### I-05 — No canonical error response schema defined
+### I-05 — No canonical error response schema defined ✅ FIXED
 
 TC-102, TC-103, TC-104, TC-705–TC-707 all require a JSON body with either an `error` or `detail` key. Two different key names are acceptable per the spec. An implementation that uses `error` everywhere will have different field names from one that uses FastAPI's default `detail` key (from `HTTPException`). The test assertions and client code will need to handle both, or the schema should be normalised to one key.
 
 **Recommendation:** Define a single canonical error envelope in the test spec: `{"error": {"code": "...", "message": "..."}}`. FastAPI's default 422 uses `{"detail": [...]}` — decide up front whether to override this.
+
+**Verification (2026-07-06):** Section 3 of the test spec now defines the canonical envelope (`{"error": {"code", "message"}}`) and states the global exception handler overrides FastAPI's default `{"detail": ...}` body. TC-103, TC-104, TC-705, TC-706, and TC-707 were correctly updated to reference only the `error` key. **TC-102 (line ~116) was missed** — its pass criterion still reads *"body is valid JSON with an `error` or `detail` key describing the problem"*, the exact pre-fix ambiguous wording the canonical schema was introduced to eliminate. This is a leftover inconsistency, not a full fix.
+
+**Required follow-up:** Update TC-102's pass criterion to assert only the canonical `error` key, matching TC-705–TC-707.
+
+**Fix applied (2026-07-06):** TC-102's pass criterion now reads *"body is valid JSON with an `error` key (canonical envelope, §3) describing the problem"* — the `detail` alternative is removed. All five test cases (TC-102, TC-103, TC-104, TC-705, TC-706, TC-707) are now consistent with the canonical envelope defined in §3.
 
 ---
 
@@ -170,24 +178,24 @@ The pre-existing `docs/adr/FINDINGS.md` contains three notes: that status cannot
 
 ## Summary table
 
-| ID | Severity | Area | One-line description | Resolution |
-|---|---|---|---|---|
-| E-01 | Error | Test spec / fixtures | `same_audio.mp3` fixture missing; TC-402 cannot run | ✅ Added to fixture table + `gen_format_variants()`; regenerated |
-| E-02 | Error | ADR | Decision body still reads "Proposed:" after approval | ✅ ADR-0001 Decision now reads "Decision:" |
-| E-03 | Error | Roadmap | US-02 references pyannote before it exists (Increment 1) | ✅ US-02 scoped to whisper; US-06 extends health to pyannote |
-| E-04 | Error | Test spec / roadmap | TC-202 will fail in Increment 1 by design — not annotated | ✅ TC-202 gains an "Increment gate" note |
-| E-05 | Error | Test spec | TC-503 searches ground-truth text, not actual ASR output | ✅ TC-503 now extracts the span from the real response |
-| R-01 | Risk | Architecture | pyannote pipeline thread-safety under concurrent load unverified | ✅ ADR-0002 §1: private model instances per worker, no sharing |
-| R-02 | Risk | Architecture | In-memory + 90-min audio + 10 concurrent = likely OOM | ✅ ADR-0002 §3: bounded concurrency caps resident buffers; US-16 |
-| R-03 | Risk | Architecture | Client disconnect does not cancel executor-thread transcription | ✅ ADR-0002 §4 cancellation policy; US-17 updated |
-| R-04 | Risk | Operations | Model loading strategy undefined; breaks "single command" promise | ✅ ADR-0001: weights baked into image at build time |
-| R-05 | Risk | Test spec | RTF targets may not include pyannote diarisation overhead | ✅ ADR-0002 §5 + test-spec §3: RTF defined as full-pipeline |
-| R-06 | Risk | Architecture | No upload size limit; large files can OOM or violate privacy constraint | ✅ ADR-0002 §3; US-23; TC-711/712 |
-| I-01 | Improvement | Fixtures | TTS speaker differentiation too weak for reliable DER measurement | ✅ Generator uses 5 genuinely distinct de-DE voices |
-| I-02 | Improvement | Test spec | 60 s ground-truth generated but unused as quality benchmark | ✅ Added TC-306 (WER on 60 s single-speaker file) |
-| I-03 | Improvement | Test spec | No TC verifies `language` field value for German audio | ✅ Added TC-205 (asserts `language == "de"`) |
-| I-04 | Improvement | Test spec | TC-709 pass criterion (≥ 2 speakers) too weak for 5-speaker test | ✅ Raised to ≥ 3 distinct speakers |
-| I-05 | Improvement | Test spec | No canonical error response schema; `error` vs `detail` ambiguous | ✅ Test-spec §3: canonical `{error:{code,message}}` envelope |
-| I-06 | Improvement | Roadmap | Audio resampling to 16 kHz not explicit in US-08 | ✅ US-08 states 16 kHz mono int16 downmix + resample |
-| I-07 | Improvement | Roadmap | Increment 4 stories are parallelisable but not marked as such | ✅ Increment 4 header marks US-11–US-17 parallelisable |
-| I-08 | Improvement | Docs | `docs/adr/FINDINGS.md` conflicts with approved roadmap on concurrency | ✅ Old file annotated as resolved/superseded |
+| ID | Severity | Area | One-line description | Status | Resolution |
+|---|---|---|---|---|---|
+| E-01 | Error | Test spec / fixtures | `same_audio.mp3` fixture missing; TC-402 cannot run | ✅ Fixed | Added to fixture table + `gen_format_variants()`; regenerated |
+| E-02 | Error | ADR | Decision body still reads "Proposed:" after approval | ✅ Fixed | ADR-0001 Decision now reads "Decision:" |
+| E-03 | Error | Roadmap | US-02 references pyannote before it exists (Increment 1) | ✅ Fixed | US-02 scoped to whisper; US-06 extends health to pyannote |
+| E-04 | Error | Test spec / roadmap | TC-202 will fail in Increment 1 by design — not annotated | ✅ Fixed | TC-202 gains an "Increment gate" note |
+| E-05 | Error | Test spec | TC-503 searches ground-truth text, not actual ASR output | ✅ Fixed | TC-503 now extracts the span from the real response |
+| R-01 | Risk | Architecture | pyannote pipeline thread-safety under concurrent load unverified | ✅ Fixed | ADR-0002 §1: private model instances per worker, no sharing |
+| R-02 | Risk | Architecture | In-memory + 90-min audio + 10 concurrent = likely OOM | ✅ Fixed | ADR-0002 §3: bounded concurrency caps resident buffers; US-16 |
+| R-03 | Risk | Architecture | Client disconnect does not cancel executor-thread transcription | ✅ Fixed | ADR-0002 §4 cancellation policy; US-17 updated |
+| R-04 | Risk | Operations | Model loading strategy undefined; breaks "single command" promise | ✅ Fixed | ADR-0001: weights baked into image at build time |
+| R-05 | Risk | Test spec | RTF targets may not include pyannote diarisation overhead | ✅ Fixed | ADR-0002 §5 + test-spec §3: RTF defined as full-pipeline |
+| R-06 | Risk | Architecture | No upload size limit; large files can OOM or violate privacy constraint | ✅ Fixed | ADR-0002 §3; US-23; TC-711/712 |
+| I-01 | Improvement | Fixtures | TTS speaker differentiation too weak for reliable DER measurement | ✅ Fixed | Generator uses 5 genuinely distinct de-DE voices |
+| I-02 | Improvement | Test spec | 60 s ground-truth generated but unused as quality benchmark | ✅ Fixed | Added TC-306 (WER on 60 s single-speaker file) |
+| I-03 | Improvement | Test spec | No TC verifies `language` field value for German audio | ✅ Fixed | Added TC-205 (asserts `language == "de"`) |
+| I-04 | Improvement | Test spec | TC-709 pass criterion (≥ 2 speakers) too weak for 5-speaker test | ✅ Fixed | Raised to ≥ 3 distinct speakers |
+| I-05 | Improvement | Test spec | No canonical error response schema; `error` vs `detail` ambiguous | ✅ Fixed | Test-spec §3 defines canonical `{error:{code,message}}` envelope; all of TC-102/103/104/705/706/707 updated to reference only `error` |
+| I-06 | Improvement | Roadmap | Audio resampling to 16 kHz not explicit in US-08 | ✅ Fixed | US-08 states 16 kHz mono int16 downmix + resample |
+| I-07 | Improvement | Roadmap | Increment 4 stories are parallelisable but not marked as such | ✅ Fixed | Increment 4 header marks US-11–US-17 parallelisable |
+| I-08 | Improvement | Docs | `docs/adr/FINDINGS.md` conflicts with approved roadmap on concurrency | ✅ Fixed | Old file annotated as resolved/superseded |
