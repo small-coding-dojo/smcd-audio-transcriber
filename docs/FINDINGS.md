@@ -29,6 +29,11 @@ memory figures, and disconnect policy (ADR-0002); all tunable defaults
 Docker/deployment details; increment and story attributions; "no storage tier"
 consistent with TC-504 auto-pass.
 
+**Second QA pass (2026-07-06, after `d98ab8f`):** resolutions F-01–F-05
+verified in the committed state with no regressions. F-06 escalated
+Info → Low (the link now resolves to wrong content instead of dangling);
+F-07 added (queued-bytes memory term missing from ADR-0002 §3's budget).
+
 ---
 
 ## Findings
@@ -40,7 +45,8 @@ consistent with TC-504 auto-pass.
 | F-03 | Low | `architecture.md` §2; PROJECT_BRIEF (traceability) | German-language driver omitted; German requirement not traceable to the brief at all | Resolved (docs) — `d98ab8f`; brief clarification with product owner still pending |
 | F-04 | Low | `architecture.md` §5 | ffmpeg decode attributed to US-03; Increment 1 WAV path is in-memory Python, ffmpeg needed from Increment 3 | Resolved — `d98ab8f` |
 | F-05 | Info | `architecture.md` §3 | "Frontend owned by another team" is an unsourced assumption | Resolved — `d98ab8f` |
-| F-06 | Info | ADR-0002 | Links to `../FINDINGS.md`, deleted in commits `36cd9bc`/`a7a0760` (pre-existing; coincidentally re-satisfied while this file exists) | Open |
+| F-06 | Low (escalated from Info) | ADR-0002 | Links to `../FINDINGS.md` as "the architectural review"; the link now resolves to *this* file's unrelated QA findings — misleading, worse than the original dead link | Open |
+| F-07 | Low | ADR-0002 §3 | Memory budget counts only N decoded PCM buffers; omits queued encoded bytes, up to `QUEUE_DEPTH` × `MAX_UPLOAD_BYTES` ≈ 3.2 GB at defaults | Open |
 
 ---
 
@@ -137,7 +143,7 @@ is stated as fact; no source document says who owns the frontend.
 
 ---
 
-### F-06 — Dangling FINDINGS.md link in ADR-0002 (Info, pre-existing)
+### F-06 — Dangling FINDINGS.md link in ADR-0002 (Low, escalated from Info; pre-existing)
 
 **Where:** ADR-0002, Context section: `[FINDINGS.md](../FINDINGS.md)`.
 
@@ -145,6 +151,35 @@ is stated as fact; no source document says who owns the frontend.
 `a7a0760`), leaving a dead link. The existence of *this* file coincidentally
 re-satisfies the path until it, too, is deleted.
 
+**Escalation (second QA pass):** with this file recreated for the current
+review, the ADR's link no longer dangles — it resolves to the *wrong*
+document. A reader looking for the architectural review's R-01…R-06 risks
+lands on these unrelated F-xx QA findings. Misleading content is worse than
+a 404, so severity is raised to Low and the fix should not wait for this
+file's eventual deletion.
+
 **Recommendation:** Reword the ADR to cite the review by date/commit instead
 of linking a transient file (e.g. "the v1.1 architectural review, resolved in
 `116355a`").
+
+---
+
+### F-07 — Queued-request memory unaccounted in ADR-0002 §3 (Low)
+
+**Where:** ADR-0002 §3 (memory-ceiling argument and the check-ordering
+bullet added for F-01).
+
+**Problem:** §3's peak-memory argument counts only the **N decoded PCM
+buffers** (~172 MB each; < 1 GB at N = 4). But requests that are admitted and
+waiting in the queue each hold their encoded upload bytes, adding a second
+term of up to `QUEUE_DEPTH` × `MAX_UPLOAD_BYTES` = 32 × 100 MB ≈ **3.2 GB**
+at defaults. The documents are mutually consistent (architecture.md and the
+F-01 clarification both state queued requests hold encoded bytes only) — the
+gap is that the ADR's "predictable, no OOM" claim omits this term from its
+arithmetic. Surfaced by the F-01 clarification, which made the queue's
+holdings explicit.
+
+**Recommendation:** Add the queued-bytes term to §3's memory accounting and
+state that operators size `QUEUE_DEPTH` against available RAM
+(`QUEUE_DEPTH` × `MAX_UPLOAD_BYTES` headroom on top of model and PCM memory),
+not only against expected test concurrency.
