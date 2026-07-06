@@ -30,7 +30,8 @@ and sequence diagrams, which render more reliably at that level of detail.
 
 ## 2. Architectural drivers
 
-Four constraints from the brief shape every decision below:
+Five constraints shape every decision below — the first four from the brief,
+the fifth from ADR-0001:
 
 1. **Privacy by design.** Uploaded audio and transcript content must never be
    written to disk, logged, or retained after the response. This rules out any
@@ -46,6 +47,12 @@ Four constraints from the brief shape every decision below:
 4. **Reproducible, self-contained deployment.** Model weights are baked into
    the container image at build time; the running container needs no network
    access and no credentials (ADR-0001, model sourcing strategy).
+5. **German-language accuracy.** ADR-0001 lists German support as a decision
+   driver (motivating the `large-v3` model), and the test specification
+   measures its quality thresholds (WER ≤ 15 %, DER ≤ 20 %) on German
+   fixtures. *Traceability note:* this requirement appears in ADR-0001 and
+   the test specification but not in the project brief; the gap was raised
+   with the product owner in the 2026-07-06 QA review (F-03).
 
 ---
 
@@ -61,7 +68,7 @@ C4Context
     title System Context — Audio Transcriber Service
 
     Person(user, "End user", "Uploads a recording and reads the transcript")
-    System_Ext(frontend, "ClearVoice web application", "Frontend owned by another team; consumes the transcription API")
+    System_Ext(frontend, "ClearVoice web application", "Consumes the transcription API (ownership not specified in the brief)")
     System(transcriber, "Audio Transcriber Service", "Accepts an audio file over HTTP and returns a structured, timestamped, speaker-diarised transcript. Stateless; retains nothing.")
     System_Ext(hf, "HuggingFace Hub", "Source of Whisper and pyannote model weights. Contacted at image build time only (HF_TOKEN is a build-time secret); the running service is fully offline (HF_HUB_OFFLINE=1).")
 
@@ -135,7 +142,7 @@ flowchart TB
             direction TB
             health["Health check<br/>GET /health — model readiness (US-02)"]
             limits["Upload guards<br/>streaming size limit → 413,<br/>duration probe → 422 (US-23)"]
-            decode["Audio decode<br/>ffmpeg, in-memory, multi-format<br/>(US-03, US-08/09)"]
+            decode["Audio decode — inside worker slot<br/>WAV in-memory (US-03);<br/>ffmpeg multi-format from Increment 3 (US-08/09)"]
             gate["Inference gate<br/>bounded queue (depth 32) → 503,<br/>per-worker semaphore (ADR-0002)"]
             asr["Transcription engine<br/>faster-whisper large-v3,<br/>segment generator (US-03)"]
             dia["Diarisation pipeline<br/>pyannote 3.1, single blocking call<br/>(Increment 2)"]
@@ -148,10 +155,10 @@ flowchart TB
     client --> appf
     appf --> health
     appf --> limits
-    limits --> decode
-    decode --> gate
-    gate --> asr
-    gate --> dia
+    limits --> gate
+    gate --> decode
+    decode --> asr
+    decode --> dia
     asr --> align
     dia --> align
     align --> resp
@@ -167,7 +174,7 @@ flowchart TB
 | App factory + routes | Constructs isolated FastAPI instances (testability); liveness `/`; lifespan logging that never touches request content | **Built** ([`main.py`](../src/smcd_audio_transcriber/main.py)) |
 | Health check | Readiness gated on model load | Planned — US-02 |
 | Upload guards | `MAX_UPLOAD_BYTES` enforced while streaming (never buffer-then-measure); `MAX_AUDIO_DURATION_S` via metadata probe before decode | Planned — US-23, ADR-0002 §3 |
-| Audio decode | ffmpeg-based, in-memory only; ffmpeg already installed in the runtime image | Planned — Increments 1/3 |
+| Audio decode | Runs inside the acquired worker slot, so at most N decoded buffers are resident (ADR-0002 §3). WAV decoded in-memory (US-03); ffmpeg-based multi-format decode from Increment 3 (US-08/09) — ffmpeg is already installed in the runtime image | Planned — Increments 1/3 |
 | Inference gate | Bounded admission queue (`503` + `Retry-After` when full); one in-flight inference per model instance | Planned — ADR-0002 §§1–2 |
 | Transcription engine | faster-whisper `large-v3`; segment generator enables disconnect checks between segments | Planned — US-03, ADR-0001 |
 | Diarisation + alignment | pyannote pipeline; manual speaker–segment alignment | Planned — Increment 2 |
@@ -181,6 +188,10 @@ The lifecycle below encodes ADR-0002's decisions on backpressure, cancellation,
 and the privacy boundary. Cancellation granularity is one transcript segment;
 an in-flight pyannote call runs to completion but its result is discarded and
 the slot freed immediately (the one honest limitation of the design).
+Rejection checks run cheapest-first — size while streaming, then metadata
+duration probe, then queue admission — and full decode happens only after a
+worker slot is acquired, which is what bounds resident PCM buffers to N
+(ADR-0002 §§1, 3).
 
 ```mermaid
 sequenceDiagram
@@ -200,6 +211,7 @@ sequenceDiagram
         H-->>C: 503 + Retry-After
     else admitted
         H->>G: acquire worker slot
+        G->>G: decode + resample (in-memory,<br/>at most N buffers service-wide)
         G->>W: transcribe (segment generator)
         loop each segment
             W-->>H: segment
@@ -289,9 +301,22 @@ REQ-PRIV, US-01).
   temporary decode artefacts must be gone before the response returns
   (ADR-0001 consequences). "In-memory" means *not persisted*, with memory
   bounded by bounding concurrency rather than by chunking (ADR-0002 §3).
-- **Error contract:** `413` (too large), `422` (too long/unprocessable),
-  `503` (overloaded, with `Retry-After`), all in a canonical error envelope;
-  the robustness goal is *no 5xx on any input* other than deliberate `503`
+- **Error contract:** every non-2xx response uses the canonical envelope
+  `{"error": {"code": "...", "message": "..."}}`; a global exception handler
+  overrides FastAPI's default `{"detail": ...}` body. The
+  [test specification §3](test-specification.md#3-acceptance-thresholds) is
+  the source of truth for this table:
+
+  | Status | `code` | Condition |
+  |---|---|---|
+  | `400` | `missing_file` / `bad_request` | Missing or malformed file field |
+  | `400` | `empty_file` | Zero-byte upload |
+  | `413` | `file_too_large` | Upload exceeds `MAX_UPLOAD_BYTES` |
+  | `415`/`422` | `unsupported_format` | Content is not decodable audio |
+  | `422` | `audio_too_long` | Duration exceeds `MAX_AUDIO_DURATION_S` |
+  | `503` | `overloaded` | Queue full; includes `Retry-After` |
+
+  The robustness goal is *no 5xx on any input* other than deliberate `503`
   load shedding.
 - **Observability:** process lifecycle logging exists today; anything richer
   must respect the content-free logging rule.

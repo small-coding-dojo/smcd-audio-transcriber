@@ -35,7 +35,7 @@ This ADR decides the concurrency model, the resource ceilings, and the request l
 
 ### 1. Concurrency model — process workers, each owning private model instances
 
-- The HTTP layer is **async** (FastAPI on uvicorn). It accepts requests, validates them, and hands the decoded-audio work to a model worker. The event loop is never blocked by inference.
+- The HTTP layer is **async** (FastAPI on uvicorn). It accepts requests, runs the cheap validations (streaming size limit, metadata duration probe), and hands the **raw encoded bytes** to a model worker. **Decode happens inside the worker's serialised section, after slot acquisition** — not in the HTTP layer — so the §3 bound of N decoded buffers holds even with a full admission queue. The event loop is never blocked by inference. *(Clarified 2026-07-06, QA review F-01: the earlier wording "hands the decoded-audio work" could be read as decode-before-admission, which would break the §3 memory bound.)*
 - Each **worker process** loads its **own private** faster-whisper instance and its **own private** pyannote pipeline at startup. Model instances are **never shared between threads or processes** — this is the direct resolution of R-01.
 - Within a worker, heavy inference is serialised by a bounded in-process semaphore (**one in-flight inference per model instance**). CTranslate2 (faster-whisper) and pyannote already saturate the device with internal threads; running two inferences concurrently on one device yields no speed-up and risks VRAM exhaustion.
 - Horizontal concurrency is achieved by running **N worker processes** (`uvicorn --workers N`, or N replicas behind a load balancer), sized to the hardware (`N ≈ device_count`, or memory-bounded on CPU). Throughput scales with N.
@@ -51,6 +51,7 @@ This ADR decides the concurrency model, the resource ceilings, and the request l
 
 - **Maximum upload size:** `MAX_UPLOAD_BYTES`, default **100 MB**. Enforced by streaming the request body and aborting with **`413 Content Too Large`** once the limit is exceeded — the whole body is never buffered to measure it.
 - **Maximum audio duration:** `MAX_AUDIO_DURATION_S`, default **7200 s (2 h)**. Probed from the container metadata before full decode; over-limit input is rejected with **`422`**. The cap sits above the 90-minute robustness fixture (TC-703) with headroom.
+- **Check ordering is cheapest-first:** byte-size limit enforced while streaming (`413`), then metadata duration probe (`422`), then queue admission (`503` when full), then decode — which happens only **inside the acquired worker slot** (§1). Queued requests therefore hold at most their encoded upload bytes (≤ `MAX_UPLOAD_BYTES`), never decoded PCM.
 - **Peak per-request memory is bounded by bounding concurrency, not by chunking.** With worker-level serialisation, only **N** decoded buffers are resident at once. A 90-minute file at 16 kHz mono int16 is ~172 MB; `N = 4` workers ⇒ < 1 GB of PCM, predictable and within typical hardware. Chunked/streaming decode remains an available optimisation for very long files but is **not** required to meet the targets — bounded concurrency is the primary lever. This reconciles US-05 (in-memory), US-16 (90-min), and US-19 (10 concurrent), which the review correctly flagged as being in unacknowledged tension.
 
 ### 4. Request lifecycle and cancellation (resolves R-03)
