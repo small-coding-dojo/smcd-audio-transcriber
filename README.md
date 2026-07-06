@@ -2,7 +2,8 @@
 
 HTTP service that accepts an uploaded audio file and returns a structured,
 timestamped, speaker-diarised transcript. See [`PROJECT_BRIEF.md`](PROJECT_BRIEF.md)
-for the product requirements and [`docs/`](docs/) for the architecture
+for the product requirements and [`docs/`](docs/) for the
+[architecture description](docs/architecture.md) (C4), the architecture
 decisions ([ADR-0001](docs/adr/0001-transcription-backend.md),
 [ADR-0002](docs/adr/0002-concurrency-and-resource-model.md)), the
 [implementation roadmap](docs/implementation-roadmap.md), and the
